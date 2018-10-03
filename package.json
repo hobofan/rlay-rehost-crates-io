@@ -4,12 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "seed": "mkdir -p build && node_modules/.bin/rlay-seed-ontology ontology/main.js > ./build/main-seeded.json"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@rlay/web3-rlay": "^0.1.3",
+    "@rlay/web3-rlay": "^0.1.6",
+    "rlaybase-seed": "rlay-project/rlaybase-seed#1a2c51a3edf6835994b96ef038af774389866b60",
     "express": "^4.16.3",
     "ipfs-api": "^24.0.2",
     "web3": "^1.0.0-beta.36"

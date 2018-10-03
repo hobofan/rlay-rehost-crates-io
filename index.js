@@ -9,6 +9,8 @@ const ipfsAPI = require('ipfs-api');
 const address = '0xc02345a911471fd46c47c4d3c2e5c85f5ae93d13';
 const indexPath = '/Users/hobofan/stuff/hobofan-crates.io-index';
 
+const ontology = require('./build/main-seeded.json');
+
 const web3 = new Web3(process.env.RPC_URL || 'http://localhost:8546');
 rlay.extendWeb3WithRlay(web3);
 web3.eth.defaultAccount = address;
@@ -17,52 +19,18 @@ const storeEntity = entity => {
   return rlay.store(web3, entity, { gas: 1000000 });
 };
 
-const retrieve = cid => {
-  return rlay.retrieve(web3, cid);
+const getEntityCid = entity => {
+  return web3.rlay.experimentalGetEntityCid(entity);
 };
 
-const seedOntology = async () => {
-  const urlLabel = await storeEntity({
-    type: 'Annotation',
-    property: rlay.builtins.labelAnnotationProperty,
-    value: rlay.encodeValue('Univeral Resource Location'),
-  });
-  const urlAnnotationProperty = await storeEntity({
-    type: 'AnnotationProperty',
-    annotations: [urlLabel],
-  });
-
-  const Sha256ChecksumLabel = await storeEntity({
-    type: 'Annotation',
-    property: rlay.builtins.labelAnnotationProperty,
-    value: rlay.encodeValue('SHA256 checksum'),
-  });
-  const sha256Checksum = await storeEntity({
-    type: 'AnnotationProperty',
-    annotations: [Sha256ChecksumLabel],
-  });
-
-  const alternativeUrlLabel = await storeEntity({
-    type: 'Annotation',
-    property: rlay.builtins.labelAnnotationProperty,
-    value: rlay.encodeValue('Alternative URL'),
-  });
-  const alternativeUrl = await storeEntity({
-    type: 'DataProperty',
-    annotations: [alternativeUrlLabel],
-  });
-
-  return {
-    urlAnnotationProperty,
-    sha256Checksum,
-    alternativeUrl,
-  };
+const retrieve = cid => {
+  return rlay.retrieve(web3, cid);
 };
 
 const getChecksum = (indexPath, crateName, crateVersion) => {
   let crateDir;
   if (crateName.length === 1 || crateName.length === 2) {
-    crateDir = crateName;
+    crateDir = crateName.length.toString();
   } else if (crateName.length === 3) {
     crateDir = `3/${crateName.slice(0, 1)}`;
   } else {
@@ -89,7 +57,25 @@ const getChecksum = (indexPath, crateName, crateVersion) => {
   });
 };
 
-const urlChecksumIndividual = async (ontology, url, cksum) => {
+const getUrlChecksumIndividual = async (ontology, url, cksum) => {
+  const urlAnn = await getEntityCid({
+    type: 'Annotation',
+    property: ontology.urlAnnotationProperty,
+    value: rlay.encodeValue(url),
+  });
+  const cksumAnn = await getEntityCid({
+    type: 'Annotation',
+    property: ontology.sha256Checksum,
+    value: rlay.encodeValue(cksum),
+  });
+  const individual = await getEntityCid({
+    type: 'Individual',
+    annotations: [urlAnn, cksumAnn],
+  });
+  return individual;
+};
+
+const storeUrlChecksumIndividual = async (ontology, url, cksum) => {
   const urlAnn = await storeEntity({
     type: 'Annotation',
     property: ontology.urlAnnotationProperty,
@@ -162,7 +148,7 @@ const addIpfsAlternative = async (ontology, originalIndividual, dlUrl) => {
 
 const startServer = ontology => {
   const app = express();
-  const port = 3050;
+  const port = 23788;
 
   const mainDlUrl = 'https://crates.io/api/v1/crates';
 
@@ -173,32 +159,27 @@ const startServer = ontology => {
     let dlUrl = `${mainDlUrl}/${crateName}/${crateVersion}/download`;
 
     getChecksum(indexPath, crateName, crateVersion).then(cksum => {
-      urlChecksumIndividual(ontology, dlUrl, cksum).then(individual => {
+      getUrlChecksumIndividual(ontology, dlUrl, cksum).then(individual => {
         getIpfsAlternative(ontology, individual).then(alternative => {
           const usedDlUrl = alternative || dlUrl;
           console.log('Download URL', usedDlUrl, !!alternative);
           res.redirect(302, usedDlUrl);
           if (!alternative) {
-            addIpfsAlternative(ontology, individual, dlUrl);
+            storeUrlChecksumIndividual(ontology, dlUrl, cksum).then(
+              individual => {
+                return addIpfsAlternative(ontology, individual, dlUrl);
+              },
+            );
           }
         });
       });
     });
-    // .then(individual => {
-    // addAlternativeUrl(ontology, individual, dlUrl);
-    // return listAlternativeUrls(ontology, individual);
-    // })
-    // .then(alternativeUrls => {
-    // console.log(alternativeUrls);
-    // });
   });
 
   app.listen(port, () => console.log(`Example app listening on port ${port}!`));
 };
 
 const main = async () => {
-  const ontology = await seedOntology();
-
   startServer(ontology);
 };
 
