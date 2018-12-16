@@ -14,13 +14,13 @@ module.exports = {
   entities: {
     urlLabel: label('Univeral Resource Location'),
     urlAnnotationProperty: {
-      type: 'AnnotationProperty',
+      type: 'DataProperty',
       annotations: ['*urlLabel'],
     },
 
     Sha256ChecksumLabel: label('SHA256 checksum'),
     sha256Checksum: {
-      type: 'AnnotationProperty',
+      type: 'DataProperty',
       annotations: ['*Sha256ChecksumLabel'],
     },
 

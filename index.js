@@ -24,7 +24,7 @@ const getEntityCid = entity => {
 };
 
 const retrieve = cid => {
-  return rlay.retrieve(web3, cid);
+  return rlay.retrieve(web3, cid, {});
 };
 
 const getChecksum = (indexPath, crateName, crateVersion) => {
@@ -59,36 +59,40 @@ const getChecksum = (indexPath, crateName, crateVersion) => {
 
 const getUrlChecksumIndividual = async (ontology, url, cksum) => {
   const urlAnn = await getEntityCid({
-    type: 'Annotation',
+    type: 'DataPropertyAssertion',
+    subject: '0x00',
     property: ontology.urlAnnotationProperty,
-    value: rlay.encodeValue(url),
+    target: rlay.encodeValue(url),
   });
   const cksumAnn = await getEntityCid({
-    type: 'Annotation',
+    type: 'DataPropertyAssertion',
+    subject: '0x00',
     property: ontology.sha256Checksum,
-    value: rlay.encodeValue(cksum),
+    target: rlay.encodeValue(cksum),
   });
   const individual = await getEntityCid({
     type: 'Individual',
-    annotations: [urlAnn, cksumAnn],
+    data_property_assertions: [urlAnn, cksumAnn],
   });
   return individual;
 };
 
 const storeUrlChecksumIndividual = async (ontology, url, cksum) => {
   const urlAnn = await storeEntity({
-    type: 'Annotation',
+    type: 'DataPropertyAssertion',
+    subject: '0x00',
     property: ontology.urlAnnotationProperty,
-    value: rlay.encodeValue(url),
+    target: rlay.encodeValue(url),
   });
   const cksumAnn = await storeEntity({
-    type: 'Annotation',
+    type: 'DataPropertyAssertion',
+    subject: '0x00',
     property: ontology.sha256Checksum,
-    value: rlay.encodeValue(cksum),
+    target: rlay.encodeValue(cksum),
   });
   const individual = await storeEntity({
     type: 'Individual',
-    annotations: [urlAnn, cksumAnn],
+    data_property_assertions: [urlAnn, cksumAnn],
   });
   return individual;
 };
