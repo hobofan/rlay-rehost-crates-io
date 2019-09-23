@@ -5,16 +5,20 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "seed": "mkdir -p build && node_modules/.bin/rlay-seed --input ontology/main.js > ./build/main-seeded.json"
+    "seed": "mkdir -p build/seeded && node_modules/.bin/rlay-seed --input ontology/main.js --backend myneo4j > ./build/seeded/main.json",
+    "genclient": "node_modules/.bin/rlay-generate --seed-file ontology/main.js --seed-file-output build/seeded/main.json --output generated/rlay-client/index.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@rlay/web3-rlay": "0.1.11",
-    "@rlay/utils": "0.0.5",
+    "@rlay/ontology": "0.1.0-alpha.1",
+    "@rlay/rlay-client-lib": "0.2.0",
+    "@rlay/utils": "0.2.0",
+    "cids": "^0.7.1",
     "express": "^4.16.3",
     "ipfs-api": "^24.0.2",
-    "web3": "^1.0.0-beta.36"
+    "lodash.castarray": "^4.4.0",
+    "multibase": "^0.6.0"
   },
   "devDependencies": {
     "prettier": "1.14.3"

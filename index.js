@@ -1,31 +1,14 @@
-const Web3 = require('web3');
-const rlay = require('@rlay/web3-rlay');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const ipfsAPI = require('ipfs-api');
+const CID = require('cids');
+const castArray = require('lodash.castarray');
 
-const address = '0xc02345a911471fd46c47c4d3c2e5c85f5ae93d13';
+const rlayClient = require('./generated/rlay-client');
+
 const indexPath = '/Users/hobofan/stuff/hobofan-crates.io-index';
-
-const ontology = require('./build/main-seeded.json');
-
-const web3 = new Web3(process.env.RPC_URL || 'http://localhost:8546');
-rlay.extendWeb3WithRlay(web3);
-web3.eth.defaultAccount = address;
-
-const storeEntity = entity => {
-  return rlay.store(web3, entity, { gas: 1000000 });
-};
-
-const getEntityCid = entity => {
-  return web3.rlay.experimentalGetEntityCid(entity);
-};
-
-const retrieve = cid => {
-  return rlay.retrieve(web3, cid, {});
-};
 
 const getChecksum = (indexPath, crateName, crateVersion) => {
   let crateDir;
@@ -57,134 +40,142 @@ const getChecksum = (indexPath, crateName, crateVersion) => {
   });
 };
 
-const getUrlChecksumIndividual = async (ontology, url, cksum) => {
-  const urlAnn = await getEntityCid({
-    type: 'DataPropertyAssertion',
-    subject: '0x00',
-    property: ontology.urlAnnotationProperty,
-    target: rlay.encodeValue(url),
+const buildUrlChecksumIndividual = async (url, cksum) => {
+  const payload = new rlayClient.SchemaPayload(rlayClient, {
+    urlAnnotationProperty: url,
+    sha256Checksum: cksum,
   });
-  const cksumAnn = await getEntityCid({
-    type: 'DataPropertyAssertion',
-    subject: '0x00',
-    property: ontology.sha256Checksum,
-    target: rlay.encodeValue(cksum),
-  });
-  const individual = await getEntityCid({
-    type: 'Individual',
-    data_property_assertions: [urlAnn, cksumAnn],
-  });
-  return individual;
-};
-
-const storeUrlChecksumIndividual = async (ontology, url, cksum) => {
-  const urlAnn = await storeEntity({
-    type: 'DataPropertyAssertion',
-    subject: '0x00',
-    property: ontology.urlAnnotationProperty,
-    target: rlay.encodeValue(url),
-  });
-  const cksumAnn = await storeEntity({
-    type: 'DataPropertyAssertion',
-    subject: '0x00',
-    property: ontology.sha256Checksum,
-    target: rlay.encodeValue(cksum),
-  });
-  const individual = await storeEntity({
-    type: 'Individual',
-    data_property_assertions: [urlAnn, cksumAnn],
-  });
-  return individual;
-};
-
-const listAlternativeUrls = async (ontology, individual) => {
-  const cids = await web3.rlay.experimentalListCidsIndex(
-    'DataPropertyAssertion',
-    'subject',
-    individual,
+  const individual = rlayClient.getEntityFromPayload(
+    payload.toIndividualEntityPayload(),
   );
-  const alternatives = await Promise.all(cids.map(retrieve));
-  const alternativeUrls = alternatives
-    .filter(n => n.target)
-    .map(n => rlay.decodeValue(n.target));
+
+  return individual;
+};
+
+const storeUrlChecksumIndividual = async (url, cksum) => {
+  const individual = await rlayClient.Individual.create({
+    urlAnnotationProperty: url,
+    sha256Checksum: cksum,
+  });
+  return individual;
+};
+
+const listAlternativeUrls = async individual => {
+  await individual.resolve();
+  let alternativeUrls = castArray(individual.alternativeUrl);
+  alternativeUrls = alternativeUrls.filter(Boolean);
+
+  console.log('Alternative URLs', alternativeUrls);
 
   return alternativeUrls;
 };
 
-const addAlternativeUrl = (ontology, individual, url) => {
-  return storeEntity({
-    type: 'DataPropertyAssertion',
-    subject: individual,
-    property: ontology.alternativeUrl,
-    target: rlay.encodeValue(url),
-  });
+const addAlternativeUrl = (individual, url) => {
+  return individual.assert({ alternativeUrl: url });
 };
 
-const getIpfsAlternative = (ontology, originalIndividual) => {
-  return listAlternativeUrls(ontology, originalIndividual).then(
-    alternativeUrls => {
-      return alternativeUrls.find(n =>
-        n.startsWith('http://localhost:8080/ipfs'),
-      );
-    },
-  );
+const getIpfsAlternative = async originalIndividual => {
+  const alternativeUrls = await listAlternativeUrls(originalIndividual);
+  let alternativeUrl = alternativeUrls.find(n => n.startsWith('ipfs://'));
+  if (!alternativeUrl) {
+    return null;
+  }
+
+  return alternativeUrl.replace('ipfs://', 'http://localhost:8080/ipfs/');
 };
 
-const addIpfsAlternative = async (ontology, originalIndividual, dlUrl) => {
+const addIpfsAlternative = async (originalIndividual, dlUrl) => {
   const addToIpfs = url => {
     const ipfs = ipfsAPI('/ip4/127.0.0.1/tcp/5001');
 
     return new Promise((resolve, reject) => {
-      console.log(url);
+      console.log('Adding remote URL', url, 'to IPFS');
       ipfs.util.addFromURL(url, (err, result) => {
         if (err) {
           throw err;
         }
-        resolve(result[0].hash);
+        console.log('Finished adding remote URL', url, 'to IPFS');
+
+        const cid = new CID(result[0].hash);
+        const base32cid = cid.toV1().toString('base32');
+        resolve(base32cid);
       });
     });
   };
 
   const alternativeHash = await addToIpfs(dlUrl);
-  const alternativeUrl = `http://localhost:8080/ipfs/${alternativeHash}`;
-  return addAlternativeUrl(ontology, originalIndividual, alternativeUrl);
+  const alternativeUrl = `ipfs://${alternativeHash}`;
+  return addAlternativeUrl(originalIndividual, alternativeUrl);
 };
 
-const startServer = ontology => {
+const startServer = async () => {
   const app = express();
   const port = 23788;
 
   const mainDlUrl = 'https://crates.io/api/v1/crates';
 
-  app.get('/crates/api/v1/crates/:name/:version/download', (req, res) => {
+  app.get('/crates/api/v1/crates/:name/:version/download', async (req, res) => {
     const crateName = req.params.name;
     const crateVersion = req.params.version;
 
     let dlUrl = `${mainDlUrl}/${crateName}/${crateVersion}/download`;
 
-    getChecksum(indexPath, crateName, crateVersion).then(cksum => {
-      getUrlChecksumIndividual(ontology, dlUrl, cksum).then(individual => {
-        getIpfsAlternative(ontology, individual).then(alternative => {
-          const usedDlUrl = alternative || dlUrl;
-          console.log('Download URL', usedDlUrl, !!alternative);
-          res.redirect(302, usedDlUrl);
-          if (!alternative) {
-            storeUrlChecksumIndividual(ontology, dlUrl, cksum).then(
-              individual => {
-                return addIpfsAlternative(ontology, individual, dlUrl);
-              },
-            );
-          }
-        });
-      });
+    const cksum = await getChecksum(indexPath, crateName, crateVersion);
+    const individual = await buildUrlChecksumIndividual(dlUrl, cksum);
+    const alternative = await getIpfsAlternative(individual);
+
+    const usedDlUrl = alternative || dlUrl;
+    console.log('Download URL', usedDlUrl, !!alternative);
+    res.redirect(302, usedDlUrl);
+    if (!alternative) {
+      const storedIndividual = await storeUrlChecksumIndividual(dlUrl, cksum);
+
+      return addIpfsAlternative(storedIndividual, dlUrl);
+    }
+  });
+
+  app.get('/cargo-rlay-fetch/:name/:version/alternatives', async (req, res) => {
+    const crateName = req.params.name;
+    const crateVersion = req.params.version;
+
+    let dlUrl = `${mainDlUrl}/${crateName}/${crateVersion}/download`;
+
+    const cksum = await getChecksum(indexPath, crateName, crateVersion);
+    const individual = await buildUrlChecksumIndividual(dlUrl, cksum);
+    const alternative = await getIpfsAlternative(individual);
+
+    const alternatives = [];
+    alternatives.push({
+      url: dlUrl,
+      weight: 1,
     });
+    if (alternative) {
+      alternatives.push({
+        url: alternative,
+        weight: 10,
+      });
+    }
+
+    res.status(200).send(
+      JSON.stringify(
+        {
+          alternatives,
+        },
+        null,
+        4,
+      ),
+    );
+    if (!alternative) {
+      const storedIndividual = await storeUrlChecksumIndividual(dlUrl, cksum);
+      return addIpfsAlternative(storedIndividual, dlUrl);
+    }
   });
 
   app.listen(port, () => console.log(`Example app listening on port ${port}!`));
 };
 
 const main = async () => {
-  startServer(ontology);
+  startServer();
 };
 
 main();
