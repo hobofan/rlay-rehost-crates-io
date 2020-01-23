@@ -6,7 +6,7 @@ const ipfsAPI = require('ipfs-api');
 const CID = require('cids');
 const castArray = require('lodash.castarray');
 
-const rlayClient = require('./generated/rlay-client');
+const rlayClient = require('../ontology/generated/rlay-client');
 
 const indexPath = '/Users/hobofan/stuff/hobofan-crates.io-index';
 
@@ -122,6 +122,7 @@ const startServer = async () => {
 
     const cksum = await getChecksum(indexPath, crateName, crateVersion);
     const individual = await buildUrlChecksumIndividual(dlUrl, cksum);
+    console.log(individual);
     const alternative = await getIpfsAlternative(individual);
 
     const usedDlUrl = alternative || dlUrl;
