@@ -1,6 +1,7 @@
-mod cid_mapping;
+// mod cid_mapping;
+schema_module!(schema, "../ontology/build/schema.json");
 
-use cid_fork_rlay::ToCid;
+use rlay_client_lib_experiment::prelude::*;
 use rlay_ontology::ontology::*;
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -9,7 +10,7 @@ use std::str::FromStr;
 use warp::http::Uri;
 use warp::Filter;
 
-use crate::cid_mapping::*;
+use crate::schema::*;
 
 const INDEX_PATH: &'static str = "/Users/hobofan/stuff/hobofan-crates.io-index";
 const CRATES_IO_DOWNLOAD_URL: &'static str = "https://crates.io/api/v1/crates";
@@ -58,33 +59,53 @@ fn crates_io_download_url(base_url: &str, crate_name: &str, crate_version: &str)
 /// Returns a tuple that contains the Individual in the first field,
 /// and a Vec of Entities it's made up of in the second field
 fn build_main_url_individual(main_url: &str, cksum: &str) -> (Individual, Vec<Entity>) {
-    // In the future could be something like:
-    // build_with_children!(Individual, {
-    //   ALIASES::url_annotation_property: main_url.to_cbor_bytes(),
-    //   ALIASES::sha256_checksum: main_url.to_cbor_bytes(),
-    // })
-
-    let main_url_dpa = DataPropertyAssertion {
-        property: Some(ALIASES::url_annotation_property.into()),
-        target: Some(serde_cbor::to_vec(&main_url).unwrap()),
-        ..DataPropertyAssertion::default()
-    };
-    let cksum_dpa = DataPropertyAssertion {
-        property: Some(ALIASES::sha256_checksum.into()),
-        target: Some(serde_cbor::to_vec(&cksum).unwrap()),
-        ..DataPropertyAssertion::default()
-    };
-
-    let ind = Individual {
-        data_property_assertions: vec![
-            main_url_dpa.to_cid().unwrap().to_bytes(),
-            cksum_dpa.to_cid().unwrap().to_bytes(),
-        ],
-        ..Individual::default()
-    };
-
-    (ind, vec![main_url_dpa.into(), cksum_dpa.into()])
+    individual_with_children! {{
+        url_annotation_property(): &main_url.cbor_bytes_no_prefix(),
+        sha256_checksum(): &cksum.cbor_bytes_no_prefix(),
+    }}
 }
+
+// TODO: interface for resolving
+//
+// let ind = todo_individual!();
+// let backend = todo_connection!();
+// let property = todo_property!();
+//
+// // Probably doesn't work well enough. Not specific enough with types
+// ind
+//  .assertions(&backend)
+//  .await
+//  .into_iter()
+//  .filter(property.matches)
+//  .collect();
+//
+// ind
+//  .resolve(&backend)
+//  .await
+//  .outgoing()
+//  .data_assertions()
+//  .filter_map(property.matching_values)
+//  .collect();
+
+// const listAlternativeUrls = async individual => {
+// await individual.resolve();
+// let alternativeUrls = castArray(individual.alternativeUrl);
+// alternativeUrls = alternativeUrls.filter(Boolean);
+
+// console.log('Alternative URLs', alternativeUrls);
+
+// return alternativeUrls;
+// };
+
+// const getIpfsAlternative = async originalIndividual => {
+// const alternativeUrls = await listAlternativeUrls(originalIndividual);
+// let alternativeUrl = alternativeUrls.find(n => n.startsWith('ipfs://'));
+// if (!alternativeUrl) {
+// return null;
+// }
+
+// return alternativeUrl.replace('ipfs://', 'http://localhost:8080/ipfs/');
+// };
 
 async fn handle_download_request(
     crate_name: String,
@@ -92,6 +113,8 @@ async fn handle_download_request(
 ) -> Result<impl warp::Reply, Infallible> {
     let checksum = get_checksum_from_index(INDEX_PATH, &crate_name, &crate_version);
     let crates_io_url = crates_io_download_url(CRATES_IO_DOWNLOAD_URL, &crate_name, &crate_version);
+
+    let (checksum_ind, checksum_children) = build_main_url_individual(&crates_io_url, &checksum);
 
     Ok(warp::redirect::temporary(
         Uri::from_str(&crates_io_url).unwrap(),
